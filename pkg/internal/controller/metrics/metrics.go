@@ -22,6 +22,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/metrics"
 )
 
+const AllObjects = "all"
+
 var (
 	// ReconcileTotal is a prometheus counter metrics which holds the total
 	// number of reconciliations per controller. It has two labels. controller label refers
@@ -30,7 +32,7 @@ var (
 	ReconcileTotal = prometheus.NewCounterVec(prometheus.CounterOpts{
 		Name: "controller_runtime_reconcile_total",
 		Help: "Total number of reconciliations per controller",
-	}, []string{"controller", "result"})
+	}, []string{"controller", "object_name", "result"})
 
 	// ReconcileErrors is a prometheus counter metrics which holds the total
 	// number of errors from the Reconciler.

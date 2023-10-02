@@ -90,6 +90,10 @@ type Controller struct {
 
 	// LeaderElected indicates whether the controller is leader elected or always running.
 	LeaderElected *bool
+
+	// CollectMetricsForObjects indicates whether the controller should collect metrics
+	// for all reconciled objects separately.
+	CollectMetricsForObjects bool
 }
 
 // watchDescription contains all the information necessary to start a watch.
@@ -277,6 +281,8 @@ const (
 func (c *Controller) initMetrics() {
 	ctrlmetrics.ActiveWorkers.WithLabelValues(c.Name).Set(0)
 	ctrlmetrics.ReconcileErrors.WithLabelValues(c.Name).Add(0)
+	// TODO: if we initialise these with objName = AllObjects,
+	// we'll have to increment them in each reconcileHandler call
 	ctrlmetrics.ReconcileTotal.WithLabelValues(c.Name, labelError).Add(0)
 	ctrlmetrics.ReconcileTotal.WithLabelValues(c.Name, labelRequeueAfter).Add(0)
 	ctrlmetrics.ReconcileTotal.WithLabelValues(c.Name, labelRequeue).Add(0)
@@ -305,6 +311,10 @@ func (c *Controller) reconcileHandler(ctx context.Context, obj interface{}) {
 
 	log := c.LogConstructor(&req)
 	reconcileID := uuid.NewUUID()
+	objName := ctrlmetrics.AllObjects
+	if c.CollectMetricsForObjects {
+		objName = req.NamespacedName.String()
+	}
 
 	log = log.WithValues("reconcileID", reconcileID)
 	ctx = logf.IntoContext(ctx, log)
@@ -322,7 +332,7 @@ func (c *Controller) reconcileHandler(ctx context.Context, obj interface{}) {
 			c.Queue.AddRateLimited(req)
 		}
 		ctrlmetrics.ReconcileErrors.WithLabelValues(c.Name).Inc()
-		ctrlmetrics.ReconcileTotal.WithLabelValues(c.Name, labelError).Inc()
+		ctrlmetrics.ReconcileTotal.WithLabelValues(c.Name, objName, labelError).Inc()
 		if !result.IsZero() {
 			log.Info("Warning: Reconciler returned both a non-zero result and a non-nil error. The result will always be ignored if the error is non-nil and the non-nil error causes reqeueuing with exponential backoff. For more details, see: https://pkg.go.dev/sigs.k8s.io/controller-runtime/pkg/reconcile#Reconciler")
 		}
@@ -335,17 +345,17 @@ func (c *Controller) reconcileHandler(ctx context.Context, obj interface{}) {
 		// to result.RequestAfter
 		c.Queue.Forget(obj)
 		c.Queue.AddAfter(req, result.RequeueAfter)
-		ctrlmetrics.ReconcileTotal.WithLabelValues(c.Name, labelRequeueAfter).Inc()
+		ctrlmetrics.ReconcileTotal.WithLabelValues(c.Name, objName, labelRequeueAfter).Inc()
 	case result.Requeue:
 		log.V(5).Info("Reconcile done, requeueing")
 		c.Queue.AddRateLimited(req)
-		ctrlmetrics.ReconcileTotal.WithLabelValues(c.Name, labelRequeue).Inc()
+		ctrlmetrics.ReconcileTotal.WithLabelValues(c.Name, objName, labelRequeue).Inc()
 	default:
 		log.V(5).Info("Reconcile successful")
 		// Finally, if no error occurs we Forget this item so it does not
 		// get queued again until another change happens.
 		c.Queue.Forget(obj)
-		ctrlmetrics.ReconcileTotal.WithLabelValues(c.Name, labelSuccess).Inc()
+		ctrlmetrics.ReconcileTotal.WithLabelValues(c.Name, objName, labelSuccess).Inc()
 	}
 }
 
